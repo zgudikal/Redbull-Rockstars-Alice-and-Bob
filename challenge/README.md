@@ -40,11 +40,12 @@ If done well, your work towards this core task can result in novel, publishable 
 # Submission
 
 Your submission will consist of two parts:
-1. Please make a pull request to the challenge repository. You should put all of your submission materials into one folder named as `team-<name>/`, for example `team-cats/`. Please do not modify or delete the `challenge/` folder in this repository. This will allow us to actually merge your pull request to live on in the main branch! Your team folder should then contain all of your submission materials, including:
+1. Please make a pull request to the challenge repository. You should put all of your submission materials into one folder named as `team-<name>/` that lives in the root level of this repository, for example `team-cats/`. Please do not modify or delete the `challenge/` folder in this repository. This will allow us to actually merge your pull request to live on in the main branch! Your team folder should then contain all of your submission materials, including:
    1. A copy of `1-challenge.ipynb` filled with responses to Tasks in sections 1-4.
    2. We recommend putting code, papers, slides, README, etc. related to the Core Task in Section 5 in a separate sub-folder. It would help to write a README to describe the contents of your submission. We will review this code when deciding winners.
    3. So, the structure of your submission should look like:
       ```
+      challenge/ # no modifications
       team-cats/
          1-challenge.ipynb
          core/
