@@ -4,10 +4,9 @@ from ldpc import bposd_decoder
 import scipy.sparse as sp
 from ldpc.mod2 import nullspace
 from ldpc.mod2 import rank
+import matplotlib.pyplot as plt
 
-
-def ldpc_x_memory(H_matrix, logical_support, p):
-
+def ldpc_x_memory(H_matrix, logical_support_indices, p):
     num_checks, num_data = H_matrix.shape
     data_qubits = list(range(num_data))
     ancilla_qubits = list(range(num_data, num_data + num_checks))
@@ -18,54 +17,32 @@ def ldpc_x_memory(H_matrix, logical_support, p):
 
     c.append("X_ERROR", data_qubits, p)
 
-    
     for check_idx in range(num_checks):
         ancilla = ancilla_qubits[check_idx]
-        
-        # Identify which data qubits are involved in this check
-        # (Where the matrix row is 1)
         targets = np.where(H_matrix[check_idx] == 1)[0]
         
         c.append("H", ancilla)
-        
-        # CZ between Ancilla and Data propagates Z information to the X-basis of the Ancilla
         for q in targets:
             c.append("CZ", [ancilla, q])
-            
         c.append("H", ancilla)
         c.append("M", ancilla)
         
-        # Compares this measurement to the expected value (deterministic 0 in absence of noise)
         c.append("DETECTOR", [stim.target_rec(-1)], [check_idx])
 
     c.append("M", data_qubits)
     
-    obs_targets = []
-    for q_idx in logical_support:
-        # Calculate relative offset from the end of the measurement record
-        rel_index = -(num_data - q_idx)
-        obs_targets.append(stim.target_rec(rel_index))
-        
-    c.append("OBSERVABLE_INCLUDE", obs_targets, 0)
+    
+    rec_targets = []
+    for q_idx in logical_support_indices:
 
+        relative_index = q_idx - num_data 
+        rec_targets.append(stim.target_rec(relative_index))
+        
+    c.append("OBSERVABLE_INCLUDE", rec_targets, 0)
+    
     return c
 
 def shapes_to_parity_matrix(width, height, row_shapes):
-    """
-    Converts 2D stabilizer shapes into a Parity Check Matrix (H).
-    
-    Args:
-        width (int): Lattice width (L). Periodic boundaries.
-        height (int): Lattice height (H). Open boundaries.
-        row_shapes (list): A list of shapes. Index i corresponds to the shape 
-                           used for lattice row i. If len(row_shapes) < height,
-                           it cycles through them (Quasi-Cyclic).
-                           Shape format: List of (dr, dc) tuples.
-                           
-    Returns:
-        np.array: The binary parity check matrix H.
-                  Rows = Stabilizers, Cols = Physical Qubits.
-    """
     num_qubits = width * height
     stabilizer_rows = []
 
@@ -101,22 +78,9 @@ def shapes_to_parity_matrix(width, height, row_shapes):
     return np.array(stabilizer_rows)
 
 def decode_with_bposd(syndrome, H_matrix, error_rate=0.01, max_iter=30, osd_order=10):
-    """
-    Decodes the syndrome using the BP+OSD algorithm.
-    
-    Args:
-        syndrome (np.array): The binary syndrome vector (measurements from ancilla).
-        H_matrix (np.array): The binary parity check matrix.
-        error_rate (float): The estimated physical error rate (p) for channel log-likelihood ratios.
-        max_iter (int): Maximum iterations for Belief Propagation.
-        osd_order (int): The order for Ordered Statistics Decoding (higher = more accurate but slower).
-        
-    Returns:
-        np.array: The predicted error vector (correction) for the data qubits.
-    """
     bpd = bposd_decoder(
         H_matrix,
-        error_rate=error_rate,
+        error_rate = float(error_rate),
         max_iter=max_iter,
         bp_method='ms',          # Min-Sum is commonly used for stability
         ms_scaling_factor=0.625, # Standard scaling factor for Min-Sum
@@ -200,28 +164,39 @@ Hrank = rank(H_matrix)
 k = 2*L
 print(f"Logical Qubits (k): {k}")
 
-p = 0.1
+physical_errors = np.logspace(-3.5, -0.8, 15).astype(float)
 
-logical_ops = [r * L for r in range(H)]
-circuit = ldpc_x_memory(H_matrix, logical_ops, p)
-#print(repr(circuit))
-sampler = circuit.compile_detector_sampler()
-syndrome_batch = sampler.sample(shots=1)
-single_syndrome = syndrome_batch[0].astype(int)
+logical_errors = []
+for p in physical_errors:
+    logical_ops = [r * L for r in range(H)]
 
-correction = decode_with_bposd(single_syndrome, H_matrix, error_rate=p)
+    circuit = ldpc_x_memory(H_matrix, logical_ops, p)
+    #print(repr(circuit))
+    sampler = circuit.compile_detector_sampler()
+    syndrome_batch = sampler.sample(shots=1)
+    single_syndrome = syndrome_batch[0].astype(int)
 
-print(f"Syndrome: {single_syndrome}")
-print(f"Predicted Correction: {correction}")
+    correction = decode_with_bposd(single_syndrome, H_matrix, error_rate=p)
 
-logical_error_rate = calculate_logical_error_rate(
-    circuit=circuit,
-    H_matrix=H_matrix,
-    logical_support=logical_ops,
-    num_shots=1000,
-    p_error=p
-)
+    #print(f"Syndrome: {single_syndrome}")
+    #print(f"Predicted Correction: {correction}")
 
+    logical_error_rate = calculate_logical_error_rate(
+        circuit=circuit,
+        H_matrix=H_matrix,
+        logical_support=logical_ops,
+        num_shots=100000,
+        p_error=p
+    )
+    logical_errors.append(logical_error_rate)
 
-print(f"Physical Error Rate (p):{p}")
-print(f"Logical Error Rate (LER): {logical_error_rate:.4f}")
+print(logical_errors)
+plt.figure(figsize=(8, 6))
+plt.loglog(physical_errors, logical_errors, '-o', label=f'CA Code (H={H}, L={L})')
+plt.loglog(physical_errors, physical_errors, '--', color='gray', label='Breakeven (y=x)')
+plt.xlabel("Physical Error Rate (p)")
+plt.ylabel("Logical Error Rate (LER)")
+plt.title("Bit-Flip Error Correction Performance")
+plt.grid(True, which="both", ls="-", alpha=0.5)
+plt.legend()
+plt.savefig("test.png")
